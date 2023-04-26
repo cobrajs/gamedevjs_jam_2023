@@ -80,8 +80,6 @@ class Tree extends Phaser.GameObjects.Graphics {
       ease: 'sine.inout'
     });
     */
-
-    this.influences = [];
   }
 
   reset() {
@@ -102,12 +100,9 @@ class Tree extends Phaser.GameObjects.Graphics {
     this.updateBranches();
   }
 
-  addInfluence(influence) {
-    this.influences.push(influence);
-  }
-
   getNearesetInfluence(x, y, radius) {
-    const nearest = this.influences.reduce((near, influence) => {
+    const influences = this.scene.children.getChildren().filter(child => child.name === 'fly');
+    const nearest = influences.reduce((near, influence) => {
       const distance = Phaser.Math.Distance.Between(x, y, influence.x, influence.y);
       if (distance < near.dist) {
         near.dist = distance;
@@ -153,6 +148,11 @@ class Tree extends Phaser.GameObjects.Graphics {
     });
   }
 
+  /**
+   * This expands/extends the last segment towards or away from the nearest 
+   *  point of influence (a timefly). The main branch (level 1) grows away and
+   *  any subbranches grow towards
+   */
   expand(branches, level) {
     const original = !branches;
 
@@ -183,7 +183,10 @@ class Tree extends Phaser.GameObjects.Graphics {
       let newPoint = new Phaser.Math.Vector2(lastPoint.x - penultimatePoint.x, lastPoint.y - penultimatePoint.y);
       newPoint.normalize();
       if (nearestInfluence) {
-        const targetAngle = Phaser.Math.Angle.Between(lastPoint.x, lastPoint.y, nearestInfluence.x, nearestInfluence.y);
+        let targetAngle = Phaser.Math.Angle.Between(lastPoint.x, lastPoint.y, nearestInfluence.x, nearestInfluence.y);
+        if (level === 1) {
+          targetAngle = Phaser.Math.Angle.Wrap(targetAngle + Math.PI);
+        }
         const rotatedAngle = Phaser.Math.Angle.RotateTo(newPoint.angle(), targetAngle, 0.5 / level);
         newPoint.setAngle(rotatedAngle);
       }
@@ -330,6 +333,65 @@ class Tree extends Phaser.GameObjects.Graphics {
     return branchArrays;
   }
 
+  getNearestSegment(x, y, radius) {
+    const branches = this.getAllBranchArrays();
+
+    const near = branches.reduce((min, branch) => {
+      const segment = branch.reduce((min, segment, i) => {
+        const distance = Phaser.Math.Distance.Between(segment.x, segment.y, x, y);
+        if (distance < min.distance) {
+          min.distance = distance;
+          min.segment = segment;
+          min.index = i;
+        }
+        return min;
+      }, {distance: Infinity, segment: null, index: -1});
+      if (segment.distance < min.distance) {
+        min.distance = segment.distance;
+        min.branch = branch;
+        min.index = segment.index;
+      }
+      return min;
+    }, {distance: Infinity, branch: null, index: -1});
+
+    if (near.distance < radius) {
+      return near;
+    }
+  }
+
+  getNearestSegmentSide(x, y, radius) {
+    const branches = this.getAllBranchArrays();
+
+    const near = branches.reduce((min, branch) => {
+      const segment = branch.reduce((min, segment, i) => {
+        const aDistance = Phaser.Math.Distance.Between(segment.a.x, segment.a.y, x, y);
+        const bDistance = Phaser.Math.Distance.Between(segment.b.x, segment.b.y, x, y);
+        const distance = Math.min(aDistance, bDistance);
+
+        const sub = aDistance < bDistance ? 'a' : 'b';
+
+        if (distance < min.distance) {
+          min.distance = distance;
+          min.segment = segment;
+          min.index = i;
+          min.sub = sub;
+        }
+        return min;
+      }, {distance: Infinity, segment: null, index: -1, sub: ''});
+      if (segment.distance < min.distance) {
+        min.distance = segment.distance;
+        min.branch = branch;
+        min.index = segment.index;
+        min.sub = segment.sub;
+      }
+      return min;
+    }, {distance: Infinity, branch: null, index: -1, sub: ''});
+
+    if (near.distance < radius) {
+      return near;
+    }
+  }
+
   getNearest(x, y, radius) {
     const near = this.branchHolder.reduce((min, branch, i) => {
       const aDistance = Phaser.Math.Distance.Between(branch.a.x, branch.a.y, x, y);
@@ -356,27 +418,9 @@ class Tree extends Phaser.GameObjects.Graphics {
   prune(x, y) {
     const radius = 20;
 
-    const branches = this.getAllBranchArrays();
+    const near = this.getNearestSegment(x, y, radius);
 
-    const near = branches.reduce((min, branch) => {
-      const segment = branch.reduce((min, segment, i) => {
-        const distance = Phaser.Math.Distance.Between(segment.x, segment.y, x, y);
-        if (distance < min.distance) {
-          min.distance = distance;
-          min.segment = segment;
-          min.index = i;
-        }
-        return min;
-      }, {distance: Infinity, segment: null, index: -1});
-      if (segment.distance < min.distance) {
-        min.distance = segment.distance;
-        min.branch = branch;
-        min.index = segment.index;
-      }
-      return min;
-    }, {distance: Infinity, branch: null, index: -1});
-
-    if (near.distance < radius) {
+    if (near) {
       const branch = new Branch(this.scene,
         near.branch[near.index].x + this.x,
         near.branch[near.index].y + this.y,
@@ -400,24 +444,24 @@ class Tree extends Phaser.GameObjects.Graphics {
     }
   }
 
-  addSubBranch(i, sub, x, y) {
-    let branch = this.branchHolder[i];
+  addSubBranch(branch, sub, index,  x, y) {
+    let segment = branch[index];
 
-    let newPoint = new Phaser.Math.Vector2(x - branch[sub].x, y - branch[sub].y);
+    let newPoint = new Phaser.Math.Vector2(x - segment[sub].x, y - segment[sub].y);
     newPoint.normalize();
     newPoint.scale(10);
 
-    this.branchHolder[i]['sub' + sub] = [{
-      x: branch.x,
-      y: branch.y,
+    segment['sub' + sub] = [{
+      x: segment.x,
+      y: segment.y,
       w: 10
     }, {
-      x: branch[sub].x,
-      y: branch[sub].y,
+      x: segment[sub].x,
+      y: segment[sub].y,
       w: 10
     }, {
-      x: branch[sub].x + newPoint.x,
-      y: branch[sub].y + newPoint.y,
+      x: segment[sub].x + newPoint.x,
+      y: segment[sub].y + newPoint.y,
       w: 10
     }];
 

@@ -53,8 +53,8 @@ class GameScene extends Phaser.Scene {
       }
     });
 
+    /*
     this.input.on('pointerup', pointer => {
-      /*
       if (this.shift.isDown) {
         console.log('Pointer up! Shift is down!');
 
@@ -92,8 +92,8 @@ class GameScene extends Phaser.Scene {
         lastPoint.y + newPoint.y,
         10
       );
-      */
     });
+    */
 
     this.toolPicker = new ToolPicker(this, 3, config.height - config.buttonHeight - 3);
     this.add.existing(this.toolPicker);
@@ -126,11 +126,12 @@ class GameScene extends Phaser.Scene {
   swatFlies(x, y) {
     const swatRadius = 100;
     this.getFlies().forEach(fly => {
-      const vector = new Math.Phaser.Vector2(fly.x - x, fly.y - y);
+      const vector = new Phaser.Math.Vector2(fly.x - x, fly.y - y);
       if (vector.length() < swatRadius) {
         vector.normalize();
         vector.scale(400);
         fly.changeVelocity(vector.x, vector.y);
+        fly.name = 'deadfly';
         //fly.addRotation();
       }
     });
@@ -139,7 +140,7 @@ class GameScene extends Phaser.Scene {
   sprayFlies(x, y) {
     const sprayRadius = 200;
     this.getFlies().forEach(fly => {
-      const vector = new Math.Phaser.Vector2(fly.x - x, fly.y - y);
+      const vector = new Phaser.Math.Vector2(fly.x - x, fly.y - y);
       if (vector.length() < swatRadius) {
         vector.normalize();
         vector.scale(10);
@@ -156,7 +157,6 @@ class GameScene extends Phaser.Scene {
     fly.changeVelocity(side > 0 ? -100 : 100, 20);
     fly.name = 'fly';
     this.add.existing(fly);
-    this.tree.addInfluence(fly);
   }
 
   pause() {
@@ -201,7 +201,18 @@ class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.children.list.forEach(child => child.update());
+    this.children.list.forEach(child => {
+      child.update()
+
+      if (child.name === 'deadfly') {
+        let segment = this.tree.getNearestSegmentSide(child.x - this.tree.x, child.y, 10);
+
+        if (segment) {
+          this.tree.addSubBranch(segment.branch, segment.sub, segment.index, child.x, child.y);
+          child.destroy();
+        }
+      }
+    });
 
     if (Math.floor(this.time.now) % 2 === 0) {
       this.tree.grow();
