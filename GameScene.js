@@ -83,6 +83,7 @@ class GameScene extends Phaser.Scene {
       } else if (data.name === 'reset') {
         this.pause();
         this.tree.reset();
+        this.getLeaves().forEach(leaf => leaf.makeFall());
       }
     }
   }
@@ -153,6 +154,11 @@ class GameScene extends Phaser.Scene {
       .filter(object => {
         return object.name === 'fly' || (all && object.name === 'deadfly');
       });
+  }
+
+  getLeaves() {
+    return this.children.getChildren()
+      .filter(object => object.name === 'leaf');
   }
 
   removeFlies() {
