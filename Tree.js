@@ -1,5 +1,6 @@
-const growSpeed = 0.1;
-const expandSpeed = 1.2;
+const growSpeed = 0.2;
+const expandSpeed = 0.8;
+const maxWidth = 200;
 
 class Tree extends Phaser.GameObjects.Graphics {
   constructor(scene) {
@@ -26,6 +27,8 @@ class Tree extends Phaser.GameObjects.Graphics {
       b: {x: 0, y: 0}
     }];
 
+    this.target = new Phaser.Math.Vector2(Math.random() * config.width, 0);
+    /*
     this.branchHolder = [
       {"x":400,"y":550,"w":74,"a":{"x":363,"y":550},"b":{"x":437,"y":550}},
       {"x":400,"y":520,"w":62,"a":{"x":371,"y":528},"b":{"x":428,"y":511}},
@@ -59,12 +62,12 @@ class Tree extends Phaser.GameObjects.Graphics {
       ]},
       {"x":494,"y":230,"w":20,"a":{"x":488,"y":238},"b":{"x":501,"y":223}},
       {"x":474,"y":208,"w":18,"a":{"x":466,"y":214},"b":{"x":481,"y":203}},
-      {"x":460,"y":182,"w":16,"a":{"x":452,"y":184},"b":{"x":467,"y":180}, cut: true}/*,
+      {"x":460,"y":182,"w":16,"a":{"x":452,"y":184},"b":{"x":467,"y":180}},
       {"x":457,"y":152,"w":14,"a":{"x":450,"y":152},"b":{"x":464,"y":152}},
       {"x":462,"y":122,"w":12,"a":{"x":456,"y":121},"b":{"x":468,"y":124}},
-      {"x":471,"y":94,"w":10,"a":{"x":467,"y":92},"b":{"x":476,"y":95}, "cut": true}
-      */
+      {"x":471,"y":94,"w":10,"a":{"x":467,"y":92},"b":{"x":476,"y":95}}
     ];
+    */
 
     //this.postFX.addPixelate(2);
     this.bloom = this.postFX.addBloom(config.bloomColor, 1, 1, 1, config.bloomStrength);
@@ -100,7 +103,7 @@ class Tree extends Phaser.GameObjects.Graphics {
     this.updateBranches();
   }
 
-  getNearesetInfluence(x, y, radius) {
+  getNearestInfluence(x, y, radius) {
     const influences = this.scene.children.getChildren().filter(child => child.name === 'fly');
     const nearest = influences.reduce((near, influence) => {
       const distance = Phaser.Math.Distance.Between(x, y, influence.x, influence.y);
@@ -115,7 +118,7 @@ class Tree extends Phaser.GameObjects.Graphics {
       return null;
     }
 
-    return nearest.obj;
+    return nearest;
   }
 
   addBranch(x, y, w = 10) {
@@ -136,14 +139,14 @@ class Tree extends Phaser.GameObjects.Graphics {
     }
 
     branches.forEach(branch => {
-      branch.w += growSpeed * level;
+      branch.w = Math.min(maxWidth, branch.w + growSpeed * level);
 
       if (branch.suba) {
-        this.grow(branch.suba, level / 2);
+        this.grow(branch.suba, level * 0.75);
       }
 
       if (branch.subb) {
-        this.grow(branch.subb, level / 2);
+        this.grow(branch.subb, level * 0.75);
       }
     });
   }
@@ -178,7 +181,8 @@ class Tree extends Phaser.GameObjects.Graphics {
 
     if (!lastPoint.cut) {
 
-      const nearestInfluence = this.getNearesetInfluence(lastPoint.x, lastPoint.y);
+      const { obj: nearestInfluence, dist: nearestDistance } = this.getNearestInfluence(lastPoint.x, lastPoint.y);
+      let influenceAmount = 0.5 / level;
 
       let newPoint = new Phaser.Math.Vector2(lastPoint.x - penultimatePoint.x, lastPoint.y - penultimatePoint.y);
       newPoint.normalize();
@@ -186,8 +190,17 @@ class Tree extends Phaser.GameObjects.Graphics {
         let targetAngle = Phaser.Math.Angle.Between(lastPoint.x, lastPoint.y, nearestInfluence.x, nearestInfluence.y);
         if (level === 1) {
           targetAngle = Phaser.Math.Angle.Wrap(targetAngle + Math.PI);
+          influenceAmount = Math.min(2, Math.max(0.2, 100 / nearestDistance));
         }
-        const rotatedAngle = Phaser.Math.Angle.RotateTo(newPoint.angle(), targetAngle, 0.5 / level);
+        let rotatedAngle = Phaser.Math.Angle.RotateTo(newPoint.angle(), targetAngle, influenceAmount);
+        if (level === 1) {
+          targetAngle = Phaser.Math.Angle.Between(lastPoint.x, lastPoint.y, this.target.x, this.target.y);
+          rotatedAngle = Phaser.Math.Angle.RotateTo(rotatedAngle, targetAngle, 0.4);
+        }
+        newPoint.setAngle(rotatedAngle);
+      } else if (level === 1) {
+        let targetAngle = Phaser.Math.Angle.Between(lastPoint.x, lastPoint.y, this.target.x, this.target.y);
+        let rotatedAngle = Phaser.Math.Angle.RotateTo(newPoint.angle(), targetAngle, 0.1);
         newPoint.setAngle(rotatedAngle);
       }
       newPoint.scale(expandSpeed / level);
@@ -197,11 +210,24 @@ class Tree extends Phaser.GameObjects.Graphics {
         lastPoint.x += newPoint.x;
         lastPoint.y += newPoint.y;
       } else {
-        branches.push({
+        const newBranch = {
           x: lastPoint.x + newPoint.x,
           y: lastPoint.y + newPoint.y,
           w: 10
-        });
+        };
+
+        if (Math.random() > 0.6) {
+          const sub = Math.random() > 0.5 ? 'a' : 'b';
+          let point = lastPoint[sub];
+          let leafAngle = Phaser.Math.Angle.Between(point.x, point.y, lastPoint.x, lastPoint.y);
+          leafAngle = Phaser.Math.Angle.Wrap(leafAngle + Math.PI);
+          const leaf = new Leaf(this.scene, point.x + this.x, point.y + this.y, leafAngle);
+          leaf.sub = sub;
+          this.scene.add.existing(leaf);
+          newBranch.leaves = [leaf];
+        }
+
+        branches.push(newBranch);
       }
     }
 
@@ -212,6 +238,9 @@ class Tree extends Phaser.GameObjects.Graphics {
 
   updateBranchWidths(branchSet) {
     const firstBranch = branchSet[0];
+    if (!firstBranch) {
+      return;
+    }
     firstBranch.a = new Phaser.Math.Vector2(firstBranch.x - firstBranch.w / 2, firstBranch.y);
     firstBranch.b = new Phaser.Math.Vector2(firstBranch.x + firstBranch.w / 2, firstBranch.y);
     const lastI = branchSet.length - 1;
@@ -228,6 +257,16 @@ class Tree extends Phaser.GameObjects.Graphics {
       perp.scale(branch.w / 2);
       branch.a = new Phaser.Math.Vector2(branch.x - perp.x, branch.y - perp.y);
       branch.b = new Phaser.Math.Vector2(branch.x + perp.x, branch.y + perp.y);
+
+      if (branch.leaves) {
+        branch.leaves.forEach(leaf => {
+          leaf.grow();
+          if (leaf.sub) {
+            leaf.x = this.x + branch[leaf.sub].x;
+            leaf.y = this.y + branch[leaf.sub].y;
+          }
+        });
+      }
 
       if (branch['suba']) {
         this.updateBranchWidths(branch['suba']);
@@ -333,6 +372,24 @@ class Tree extends Phaser.GameObjects.Graphics {
     return branchArrays;
   }
 
+  getTreeSize() {
+    const branches = this.getAllBranchArrays();
+    const size = branches.reduce((fullSize, branch) => {
+      const size = branch.reduce((size, segment) => {
+        return size + segment.w;
+      }, 0);
+      return fullSize + size;;
+    }, 0);
+    return size;
+  }
+
+  getRandomSegment() {
+    const branches = this.getAllBranchArrays();
+    const branch = branches[Math.floor(Math.random() * branches.length)];
+    const segment = branch[Math.floor(Math.random() * branch.length)];
+    return segment;
+  }
+
   getNearestSegment(x, y, radius) {
     const branches = this.getAllBranchArrays();
 
@@ -415,16 +472,35 @@ class Tree extends Phaser.GameObjects.Graphics {
     return near;
   }
 
+  dropLeaves(branch) {
+    branch.forEach(segment => {
+      if (segment.leaves) {
+        segment.leaves.forEach(leaf => {
+          leaf.makeFall();
+        });
+        delete segment.leaves;
+      }
+      if (segment.suba) {
+        this.dropLeaves(segment.suba);
+      }
+      if (segment.subb) {
+        this.dropLeaves(segment.subb);
+      }
+    });
+  }
+
   prune(x, y) {
     const radius = 20;
 
     const near = this.getNearestSegment(x, y, radius);
 
     if (near) {
+      const slicedBranch = near.branch.slice(near.index);
+      this.dropLeaves(slicedBranch);
       const branch = new Branch(this.scene,
         near.branch[near.index].x + this.x,
         near.branch[near.index].y + this.y,
-        Phaser.Utils.Objects.DeepCopy(near.branch.slice(near.index))
+        Phaser.Utils.Objects.DeepCopy(slicedBranch)
       );
 
       this.scene.add.existing(branch);
@@ -445,6 +521,10 @@ class Tree extends Phaser.GameObjects.Graphics {
   }
 
   addSubBranch(branch, sub, index,  x, y) {
+    if (index === 0) {
+      return;
+    }
+
     let segment = branch[index];
 
     let newPoint = new Phaser.Math.Vector2(x - segment[sub].x, y - segment[sub].y);

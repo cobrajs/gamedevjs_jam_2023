@@ -39,61 +39,27 @@ class GameScene extends Phaser.Scene {
     });
     */
 
+    this.pointerLocation = null;
+
     this.input.on('pointerdown', pointer => {
       if (this.currentTool === 'prune') {
-        let branch = this.tree.prune(pointer.x - this.tree.x, pointer.y);
-
-        if (branch) {
-          this.branches.push(branch);
-        }
+        this.tree.prune(pointer.x - this.tree.x, pointer.y);
       } else if (this.currentTool === 'swatter') {
         this.swatFlies(pointer.x, pointer.y);
       } else if (this.currentTool === 'spray') {
-        this.sprayFlies(pointer.x, pointer.y);
+        this.pointerLocation = pointer;
       }
     });
 
-    /*
+    this.input.on('pointermove', pointer => {
+      if (this.currentTool === 'spray' && this.pointerLocation) {
+        this.pointerLocation = pointer;
+      }
+    });
+
     this.input.on('pointerup', pointer => {
-      if (this.shift.isDown) {
-        console.log('Pointer up! Shift is down!');
-
-        const nearest = this.tree.getNearest(pointer.x, pointer.y);
-
-        this.tree.addSubBranch(nearest.i, nearest.sub, pointer.x, pointer.y);
-
-        return;
-      }
-
-      if (this.control.isDown) {
-        console.log('Pointer up! Control down!');
-        this.flies.forEach(fly => {
-          let newVelocity = new Phaser.Math.Vector2(pointer.x - fly.x, pointer.y - fly.y);
-          newVelocity.normalize();
-          newVelocity.scale(2);
-
-          fly.changeVelocity(newVelocity);
-        });
-
-        return;
-      }
-
-      this.tree.grow();
-
-      // Make all the sub btranches grow too!
-      let lastPoint = this.tree.getLastBranch();
-
-      let newPoint = new Phaser.Math.Vector2(pointer.x - lastPoint.x, pointer.y - lastPoint.y);
-      newPoint.normalize();
-      newPoint.scale(30);
-
-      this.tree.addBranch(
-        lastPoint.x + newPoint.x,
-        lastPoint.y + newPoint.y,
-        10
-      );
+      this.pointerLocation = null;
     });
-    */
 
     this.toolPicker = new ToolPicker(this, 3, config.height - config.buttonHeight - 3);
     this.add.existing(this.toolPicker);
@@ -102,8 +68,6 @@ class GameScene extends Phaser.Scene {
     this.currentTool = '';
 
     this.pause();
-
-    this.branches = [];
   }
 
   message(subject, data) {
@@ -132,7 +96,7 @@ class GameScene extends Phaser.Scene {
         vector.scale(400);
         fly.changeVelocity(vector.x, vector.y);
         fly.name = 'deadfly';
-        //fly.addRotation();
+        fly.addRotation();
       }
     });
   }
@@ -141,20 +105,21 @@ class GameScene extends Phaser.Scene {
     const sprayRadius = 200;
     this.getFlies().forEach(fly => {
       const vector = new Phaser.Math.Vector2(fly.x - x, fly.y - y);
-      if (vector.length() < swatRadius) {
+      const length = vector.length();
+      if (length < sprayRadius) {
         vector.normalize();
-        vector.scale(10);
-        fly.x += vector.x;
-        fly.y += vector.y;
-        //fly.addRotation();
+        //vector.scale(Math.max(10, (-sprayRadius / (sprayRadius - length)) / 10));
+        vector.scale(100);
+        fly.sprayed(vector);
       }
     });
   }
 
   addFly() {
     const side = Math.floor(Math.random() * 2) * config.width;
-    const fly = new TimeFly(this, side, 50);
-    fly.changeVelocity(side > 0 ? -100 : 100, 20);
+    const fly = new TimeFly(this, side, Math.random() * (config.height / 2));
+    fly.changeVelocity(side > 0 ? -100 : 100, Math.random() * 50 - 25);
+    fly.setTargetEvent();
     fly.name = 'fly';
     this.add.existing(fly);
   }
@@ -165,23 +130,33 @@ class GameScene extends Phaser.Scene {
     this.removeFlies();
     this.sunmoon.pause();
     this.tree.disableBloom();
+    if (this.addFlyEvent) {
+      this.addFlyEvent.destroy();
+    }
   }
 
   resume() {
     this.time.paused = false;
     //this.physics.resume();
-    this.addFly();
     this.sunmoon.resume();
     this.tree.enableBloom();
+    const timing = Math.max(2000, Math.min(100000 / this.tree.getTreeSize(), 5000));
+    this.addFlyEvent = this.time.addEvent({
+      delay: timing,
+      loop: true,
+      callback: () => this.addFly()
+    });
   }
 
-  getFlies() {
+  getFlies(all) {
     return this.children.getChildren()
-      .filter(object => object.name === 'fly');
+      .filter(object => {
+        return object.name === 'fly' || (all && object.name === 'deadfly');
+      });
   }
 
   removeFlies() {
-    this.getFlies()
+    this.getFlies(true)
       .forEach(fly => {
         fly.body.destroy();
         this.tweens.add({
@@ -201,6 +176,10 @@ class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.currentTool === 'spray' && this.pointerLocation) {
+      this.sprayFlies(this.pointerLocation.x, this.pointerLocation.y);
+    }
+
     this.children.list.forEach(child => {
       child.update()
 
@@ -218,15 +197,6 @@ class GameScene extends Phaser.Scene {
       this.tree.grow();
       this.tree.expand();
     } else {
-      this.tree.updateBranches();
-    }
-
-    if (Phaser.Input.Keyboard.JustDown(this.space)) {
-      console.log('space baby');
-      this.tree.expand();
-
-      this.tree.grow();
-
       this.tree.updateBranches();
     }
   }

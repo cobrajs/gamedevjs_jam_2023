@@ -71,21 +71,46 @@ class TimeFly extends Phaser.GameObjects.Container {
     });
   }
 
+  sprayed(vector) {
+    this.changeVelocity(vector.x, vector.y);
+    this.setTargetEvent(1000);
+  }
+
+  setTargetEvent(delay = 500) {
+    this.scene.time.addEvent({
+      delay,
+      callback: () => this.setTarget()
+    });
+  }
+
+  setTarget(newTarget) {
+    if (!this.scene) {
+      return;
+    }
+    if (!newTarget) {
+      newTarget = this.scene.tree.getRandomSegment();
+    }
+    const newVector = new Phaser.Math.Vector2(newTarget.x - this.x, newTarget.y - this.y);
+    newVector.normalize();
+    newVector.scale(100);
+    this.changeVelocity(newVector.x, newVector.y);
+  }
+
+  addRotation() {
+    this.scene.tweens.add({
+      targets: this.flyContainer,
+      rotation: { from: 0, to: 360 },
+      duration: 500
+    });
+  }
+
   update() {
     this.wingB.rotation = Math.sin(this.timing / 2) * 0.75 - Math.PI / 8;
     this.wingA.rotation = Math.cos(this.timing / 2) * 0.75 - Math.PI / 8;
     this.timing += 1;
 
-    if (this.x > config.width) {
-      this.x -= config.width;
-    } else if (this.x < 0) {
-      this.x += config.width;
-    }
-
-    if (this.y > config.height) {
-      this.y -= config.height;
-    } else if (this.y < 0) {
-      this.y += config.height;
+    if (this.x > config.width || this.x < 0 || this.y > config.height || this.y < 0) {
+      this.destroy();
     }
   }
 }
